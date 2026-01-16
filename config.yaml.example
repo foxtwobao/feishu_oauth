@@ -6,3 +6,5 @@ state_secret: change-me
 state_ttl_seconds: "600"
 storage_path: ./data/oauth_tokens.json
 port: "8000"
+host: "0.0.0.0"
+feishu_scope: offline_access

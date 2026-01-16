@@ -8,9 +8,11 @@ Lightweight Feishu OAuth callback service. It redirects users to Feishu, exchang
 - `FEISHU_APP_SECRET` (required)
 - `FEISHU_REDIRECT_URI` (required, e.g. `https://your-domain.com/oauth/callback`)
 - `WEBHOOK_URL` (optional, n8n webhook URL)
+- `FEISHU_SCOPE` (optional, default `offline_access`)
 - `STATE_SECRET` (optional, used to sign the OAuth state)
 - `STATE_TTL_SECONDS` (optional, default `600`)
 - `STORAGE_PATH` (optional, default `./data/oauth_tokens.json`)
+- `HOST` (optional, default `0.0.0.0`)
 - `PORT` (optional, default `8000`)
 - `CONFIG_PATH` (optional, default `./config.yaml`)
 
@@ -29,6 +31,7 @@ export FEISHU_APP_ID=your_app_id
 export FEISHU_APP_SECRET=your_app_secret
 export FEISHU_REDIRECT_URI=http://localhost:8000/oauth/callback
 export WEBHOOK_URL=https://your-n8n-webhook
+export FEISHU_SCOPE=offline_access
 
 python app.py
 ```

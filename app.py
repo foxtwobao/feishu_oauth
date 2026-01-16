@@ -18,9 +18,10 @@ logger = logging.getLogger("feishu_oauth")
 
 app = Flask(__name__)
 
-FEISHU_AUTH_URL = "https://passport.feishu.cn/suite/passport/oauth/authorize"
-FEISHU_TOKEN_URL = "https://passport.feishu.cn/suite/passport/oauth/token"
-FEISHU_USERINFO_URL = "https://passport.feishu.cn/suite/passport/oauth/userinfo"
+FEISHU_AUTH_URL = "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
+FEISHU_TOKEN_URL = "https://open.feishu.cn/open-apis/authen/v2/oauth/token"
+FEISHU_REFRESH_URL = "https://open.feishu.cn/open-apis/authen/v2/oauth/token"
+FEISHU_USERINFO_URL = "https://open.feishu.cn/open-apis/authen/v1/user_info"
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -64,10 +65,12 @@ def _cfg(key: str) -> Optional[str]:
 APP_ID = _env("FEISHU_APP_ID") or _cfg("feishu_app_id")
 APP_SECRET = _env("FEISHU_APP_SECRET") or _cfg("feishu_app_secret")
 REDIRECT_URI = _env("FEISHU_REDIRECT_URI") or _cfg("feishu_redirect_uri")
+SCOPE = _env("FEISHU_SCOPE") or _cfg("feishu_scope") or "offline_access"
 WEBHOOK_URL = _env("WEBHOOK_URL") or _cfg("webhook_url")
 STATE_SECRET = _env("STATE_SECRET") or _cfg("state_secret") or secrets.token_urlsafe(32)
 STATE_TTL_SECONDS = int(_env("STATE_TTL_SECONDS") or _cfg("state_ttl_seconds") or "600")
 STORAGE_PATH = Path(_env("STORAGE_PATH") or _cfg("storage_path") or "./data/oauth_tokens.json")
+HOST = _env("HOST") or _cfg("host") or "0.0.0.0"
 
 
 def _require_config() -> Optional[str]:
@@ -139,10 +142,16 @@ def _exchange_code(code: str) -> Dict[str, Any]:
         "client_id": APP_ID,
         "client_secret": APP_SECRET,
         "code": code,
+        "redirect_uri": REDIRECT_URI,
     }
     with httpx.Client(timeout=30.0) as client:
         resp = client.post(FEISHU_TOKEN_URL, json=payload)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = resp.text.strip()
+            logger.error("Token exchange HTTP error: %s", detail or exc)
+            raise RuntimeError(f"Token exchange failed: {detail or exc}") from exc
         body = resp.json()
 
     if body.get("code") not in (0, None):
@@ -202,9 +211,11 @@ def oauth_login():
 
     state = _build_state()
     url = (
-        f"{FEISHU_AUTH_URL}?client_id={APP_ID}"
+        f"{FEISHU_AUTH_URL}?app_id={APP_ID}"
         f"&redirect_uri={REDIRECT_URI}&response_type=code&state={state}"
     )
+    if SCOPE:
+        url = f"{url}&scope={SCOPE}"
     return redirect(url)
 
 
@@ -234,8 +245,22 @@ def oauth_callback():
     access_token = token_data.get("access_token")
     refresh_token = token_data.get("refresh_token")
     expires_in = int(token_data.get("expires_in", 7200))
-    if not access_token or not refresh_token:
-        return "Token data missing in response", 500
+    refresh_expires_in = token_data.get("refresh_expires_in") or token_data.get(
+        "refresh_token_expires_in"
+    )
+    refresh_expires_at = None
+    if refresh_expires_in is not None:
+        try:
+            refresh_expires_at = (
+                datetime.now(timezone.utc) + timedelta(seconds=int(refresh_expires_in))
+            ).isoformat()
+        except (TypeError, ValueError):
+            refresh_expires_in = None
+    if not access_token:
+        logger.error("Token response missing access_token: %s", token_data)
+        return f"Token response missing access_token: {token_data}", 500
+    if not refresh_token:
+        logger.warning("Token response missing refresh_token: %s", token_data)
 
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
     userinfo = _fetch_userinfo(access_token)
@@ -246,6 +271,8 @@ def oauth_callback():
         "refresh_token": refresh_token,
         "expires_in": expires_in,
         "expires_at": expires_at.isoformat(),
+        "refresh_expires_in": refresh_expires_in,
+        "refresh_expires_at": refresh_expires_at,
         "user": userinfo,
         "raw_token_response": token_data,
     }
@@ -267,6 +294,8 @@ def oauth_callback():
         "refresh_token": refresh_token,
         "expires_in": expires_in,
         "expires_at": expires_at.isoformat(),
+        "refresh_expires_in": refresh_expires_in,
+        "refresh_expires_at": refresh_expires_at,
         "user": userinfo,
     }
     payload = json.dumps(display, indent=2)
@@ -316,4 +345,4 @@ if __name__ == "__main__":
     if config_error:
         logger.warning(config_error)
         logger.warning("Service will still start, but /oauth/login will fail until config is set.")
-    app.run(host="0.0.0.0", port=int(_env("PORT") or _cfg("port") or 8000))
+    app.run(host=HOST, port=int(_env("PORT") or _cfg("port") or 8000))
