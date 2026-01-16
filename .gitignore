@@ -1,0 +1,9 @@
+/.venv
+/data
+/config.yaml
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log

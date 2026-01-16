@@ -1,0 +1,8 @@
+feishu_app_id: your_app_id
+feishu_app_secret: your_app_secret
+feishu_redirect_uri: http://localhost:8000/oauth/callback
+webhook_url: https://your-n8n-webhook
+state_secret: change-me
+state_ttl_seconds: "600"
+storage_path: ./data/oauth_tokens.json
+port: "8000"
